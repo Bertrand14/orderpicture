@@ -1,0 +1,92 @@
+<?php
+
+foreach($_POST as $key => $value){$$key = trim($value);}
+
+$result = "";
+$NbrImage = 0;
+$OrderPicture = array();
+$OrderPicture['error'] = "";
+$timestart = time();
+
+if($dossier = opendir($folderfrom)){
+	while(false !== ($file = readdir($dossier))){
+		if($file != '.' AND $file != '..' AND $file != '*.json'){
+			($type = filetype( $folderfrom . '/' . $file)) ?? exit;
+			
+			switch ($type){
+				case "file":
+					$oldfile = $folderfrom . '/' . $file;
+					$path_parts = pathinfo($oldfile);
+					foreach($path_parts as $key => $value){$$key = strtolower($value);}
+
+					if (preg_match("#^[a-zA-Z]{3}_?(\d{8})_(\d{6}).*$#", $basename, $matches)){
+						$TakenTime = new DateTime();
+						$TakenTime->setDate(substr($matches['1'],0,4), substr($matches['1'],4,2), substr($matches['1'],6,2));
+						$TakenTime->setTime(substr($matches['2'],0,2),substr($matches['2'],2,2),substr($matches['2'],4,2),);
+						$date = $TakenTime->format('U');
+						//echo "La variable date du fichier $basename depuis le nom du fichier est " . $TakenTime->format('Y.m.d H:i:s') . "<br/>";
+					}
+
+					//Si un fichier JSON avec les même nom existe, on récupère le timestamp du photoTakenTime
+					elseif(file_exists($oldfile.".json")){
+						$json = file_get_contents($oldfile.".json");
+						$parsed_json = json_decode($json);
+						$date = $parsed_json->{'photoTakenTime'}->{'timestamp'};
+						unlink($oldfile.".json");
+						//echo "La variable date du fichier $basename depuis le fichier json est " . date("d.m.Y", $date) . "<br/>";
+					}
+					
+					else{
+						$info = stat($oldfile);
+						$date = min ($info['atime'],$info['mtime'], $info['ctime']);
+						//echo "La variable date du fichier $basename depuis les infos du fichier est " . date("d.m.Y", $date) . "<br/>";
+					}
+
+					if(!is_dir($folderto_picture . '/' . date('Y', $date))){ mkdir($folderto_picture . '/' . date('Y', $date), 0777, true);	}
+					if(!is_dir($folderto_gif . '/' . date('Y', $date))){ mkdir($folderto_gif . '/' . date('Y', $date), 0777, true);	}
+					if(!is_dir($folderto_video . '/' . date('Y', $date))){ mkdir($folderto_video . '/' . date('Y', $date), 0777, true);	}
+					
+					//Le fichier est une image
+					if(in_array($extension, array('bmp', 'jpg', 'jpeg', 'tif', 'tiff', 'png', 'webp'))){
+						if(!is_dir($newfolder = $folderto_picture . '/' . date('Y', $date) . '/' . date('m', $date) . '/' . date('Y_m_d', $date))){
+							mkdir($newfolder, 0777, true);
+						}
+					}
+					
+					// Si c'est une image animée
+					elseif(in_array($extension, array('gif'))){
+						if(!is_dir($newfolder = $folderto_gif . '/' . date('Y', $date) . '/' . date('m', $date) . '/' . date('Y_m_d', $date))){
+							mkdir($newfolder, 0777, true);
+						}
+					}
+					
+					//Le fichier est une vidéo
+					elseif(in_array($extension, array('mp4', 'm4a', '3gp', 'mkv', 'ogg', 'webm'))){ // Si fichier video			
+						if(!is_dir($newfolder = $folderto_video . '/' . date('Y', $date) . '/' . date('m', $date) . '/' . date('Y_m_d', $date))){
+						mkdir($newfolder, 0777, true);
+						}
+					}
+					
+					//On déplace le fichier dans le dossier 
+					$newfile = $newfolder . '/' . date('Y_m_d-H_i_s', $date) . ".$extension";
+					if(copy($oldfile, $newfile)) {
+						unlink($oldfile);
+						$result .= "<li> le fichier $file a été déplacé dans le dossier <a href='file:///$newfolder'>$newfolder</a>.</li>";
+					}
+					break;
+
+					case "dir":
+					
+					break;
+			}
+		} // On ferme le if (qui permet de ne pas afficher index.php, etc.)
+		$NbrImage++;
+	} // On termine la boucle
+	closedir($dossier);
+}
+
+$timeend = time();
+$duringtime = $timestart - $timeend;
+$result = "Processing $NbrImage files in $duringtime seconds.<br/>$result";
+$json['result'] = $result;
+echo json_encode($result);
