@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}Traitement — MediaSort{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-800">Traitement en cours</h1>
+</div>
+
+<!-- Barre de progression -->
+<div class="card mb-6">
+  <div class="flex items-center justify-between mb-3">
+    <span id="status_text" class="text-sm font-medium text-gray-700">Initialisation…</span>
+    <span id="pct_text" class="text-sm font-mono text-gray-500">0 %</span>
+  </div>
+  <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+    <div id="progress_bar" class="h-3 bg-blue-500 rounded-full transition-all duration-300" style="width:0%"></div>
+  </div>
+  <div class="mt-2 text-xs text-gray-400" id="current_file"></div>
+</div>
+
+<!-- Compteurs -->
+<div class="grid grid-cols-3 gap-4 mb-6">
+  <div class="stat-box bg-green-50">
+    <div class="stat-val text-green-600" id="cnt_ok">0</div>
+    <div class="stat-lbl">Traités</div>
+  </div>
+  <div class="stat-box bg-red-50">
+    <div class="stat-val text-red-600" id="cnt_err">0</div>
+    <div class="stat-lbl">Erreurs</div>
+  </div>
+  <div class="stat-box bg-gray-50">
+    <div class="stat-val text-gray-600" id="cnt_rem">—</div>
+    <div class="stat-lbl">Restants</div>
+  </div>
+</div>
+
+<!-- Journal -->
+<div class="card">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="section-title mb-0">Journal</h2>
+    <button onclick="toggleErrors()" id="btn_toggle" class="text-xs text-blue-600 hover:underline">
+      Afficher uniquement les erreurs
+    </button>
+  </div>
+  <div id="log" class="log-container text-xs font-mono space-y-0.5 max-h-96 overflow-y-auto"></div>
+</div>
+
+<!-- Boutons finaux (cachés jusqu'à la fin) -->
+<div id="done_actions" class="hidden mt-6 flex gap-3">
+  <a href="/" class="btn-primary flex-1 text-center">Nouveau tri</a>
+  <button onclick="downloadReport()" class="btn-secondary flex-1">Télécharger le rapport</button>
+</div>
+
+<!-- ===== Modale — visage inconnu ===== -->
+<div id="face_modal" class="hidden fixed inset-0 z-50 flex items-center justify-center">
+  <!-- Overlay -->
+  <div class="absolute inset-0 bg-black/50"></div>
+
+  <div class="relative bg-white rounded-2xl shadow-2xl w-full max-w-sm mx-4 p-6 z-10">
+    <div class="flex items-start gap-4">
+      <!-- Photo du visage -->
+      <img id="face_crop" src="" alt="Visage"
+           class="w-24 h-24 rounded-xl object-cover border border-gray-200 flex-shrink-0">
+
+      <div class="flex-1 min-w-0">
+        <h3 class="font-bold text-gray-900 text-base mb-1">Nouveau visage détecté</h3>
+        <p class="text-sm text-gray-500 mb-3">Qui est cette personne ?</p>
+
+        <!-- Sélection parmi les connus -->
+        <div id="face_known_row" class="hidden mb-2">
+          <label class="text-xs text-gray-500 mb-1 block">Personnes connues</label>
+          <div id="face_known_chips" class="flex flex-wrap gap-1"></div>
+        </div>
+
+        <!-- Ou nouveau nom -->
+        <input type="text" id="face_name_input" placeholder="Nouveau prénom…"
+               class="input text-sm mb-3"
+               onkeydown="if(event.key==='Enter') confirmFace()">
+
+        <div class="flex gap-2">
+          <button onclick="confirmFace()" class="btn-primary flex-1 text-sm py-1.5">
+            Confirmer
+          </button>
+          <button onclick="skipFace()" class="btn-secondary text-sm py-1.5 px-3">
+            Ignorer
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const params = new URLSearchParams(window.location.search);
+const sessionId = params.get('session');
+
+let okCount = 0, errCount = 0, total = 0;
+let allResults = [];
+let showErrorsOnly = false;
+
+function toggleErrors() {
+  showErrorsOnly = !showErrorsOnly;
+  document.getElementById('btn_toggle').textContent =
+    showErrorsOnly ? 'Tout afficher' : 'Afficher uniquement les erreurs';
+  renderLog();
+}
+
+function renderLog() {
+  const log = document.getElementById('log');
+  const filtered = showErrorsOnly ? allResults.filter(r => r.status !== 'ok') : allResults;
+  log.innerHTML = filtered.map(r => {
+    const cls = r.status === 'ok' ? 'text-gray-600' : 'text-red-600';
+    const icon = r.status === 'ok' ? '✓' : '✗';
+    const dest    = r.new_path ? ` → ${r.new_path}` : '';
+    const err     = r.error   ? ` (${r.error})` : '';
+    const src     = r.metadata_source ? `[${r.metadata_source}]` : '';
+    const faces   = (r.faces_found && r.faces_found.length) ? ` 👤 ${r.faces_found.join(', ')}` : '';
+    const caption = r.caption_generated ? ` 📝 "${r.caption_generated}"` : '';
+    return `<div class="${cls} leading-5">${icon} ${r.filename} ${src}${dest}${err}${faces}${caption}</div>`;
+  }).join('');
+  log.scrollTop = log.scrollHeight;
+}
+
+function downloadReport() {
+  const lines = ['Fichier original\tNouveau chemin\tSource métadonnées\tStatut\tErreur'];
+  allResults.forEach(r => {
+    lines.push([r.filename, r.new_path||'', r.metadata_source||'', r.status, r.error||''].join('\t'));
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/tab-separated-values' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'mediasort_rapport.tsv';
+  a.click();
+}
+
+// ---- Face modal logic ----
+function showFaceModal(msg) {
+  document.getElementById('face_crop').src = 'data:image/jpeg;base64,' + msg.crop_b64;
+  document.getElementById('face_name_input').value = '';
+  document.getElementById('status_text').textContent = 'En attente — identification d\'un visage…';
+
+  // Known names chips
+  const names = msg.known_names || [];
+  const chipsEl = document.getElementById('face_known_chips');
+  const rowEl   = document.getElementById('face_known_row');
+  chipsEl.innerHTML = '';
+  if (names.length) {
+    rowEl.classList.remove('hidden');
+    names.forEach(n => {
+      const chip = document.createElement('button');
+      chip.textContent = n;
+      chip.className = 'text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-200 transition';
+      chip.onclick = () => {
+        document.getElementById('face_name_input').value = n;
+        confirmFace();
+      };
+      chipsEl.appendChild(chip);
+    });
+  } else {
+    rowEl.classList.add('hidden');
+  }
+
+  document.getElementById('face_modal').classList.remove('hidden');
+  document.getElementById('face_name_input').focus();
+}
+
+function hideFaceModal() {
+  document.getElementById('face_modal').classList.add('hidden');
+}
+
+function confirmFace() {
+  const name = document.getElementById('face_name_input').value.trim();
+  sendFaceResponse(name);
+}
+
+function skipFace() {
+  sendFaceResponse('');
+}
+
+async function sendFaceResponse(name) {
+  hideFaceModal();
+  await fetch('/api/faces/respond/' + sessionId, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name }),
+  });
+}
+
+// ---- SSE stream ----
+if (!sessionId) {
+  document.getElementById('status_text').textContent = 'Aucune session active.';
+} else {
+  const es = new EventSource('/api/process/stream/' + sessionId);
+
+  es.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+
+    if (msg.type === 'face_pause') {
+      showFaceModal(msg);
+      return;  // Don't update progress counters — still on same file
+    }
+
+    if (msg.type === 'progress') {
+      hideFaceModal();
+      total = msg.total;
+      const r = msg.result;
+      allResults.push(r);
+
+      if (r.status === 'ok') okCount++; else errCount++;
+
+      const pct = Math.round((msg.index / total) * 100);
+      document.getElementById('progress_bar').style.width = pct + '%';
+      document.getElementById('pct_text').textContent = pct + ' %';
+      document.getElementById('status_text').textContent =
+        `${msg.index} / ${total} fichiers traités`;
+      document.getElementById('current_file').textContent = r.filename;
+      document.getElementById('cnt_ok').textContent  = okCount;
+      document.getElementById('cnt_err').textContent = errCount;
+      document.getElementById('cnt_rem').textContent = total - msg.index;
+      renderLog();
+    }
+
+    if (msg.type === 'done') {
+      es.close();
+      hideFaceModal();
+      document.getElementById('progress_bar').style.width = '100%';
+      document.getElementById('pct_text').textContent = '100 %';
+      document.getElementById('cnt_rem').textContent = '0';
+      document.getElementById('current_file').textContent = '';
+      document.getElementById('status_text').textContent =
+        `Terminé — ${msg.ok} réussi${msg.ok > 1 ? 's' : ''}, ${msg.errors} erreur${msg.errors > 1 ? 's' : ''}`;
+      document.getElementById('done_actions').classList.remove('hidden');
+    }
+  };
+
+  es.onerror = () => {
+    es.close();
+    document.getElementById('status_text').textContent = 'Connexion perdue — rechargez la page.';
+  };
+}
+</script>
+{% endblock %}

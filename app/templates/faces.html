@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Visages — MediaSort{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-800">Base de visages</h1>
+  <p class="text-gray-500 mt-1">Personnes apprises lors des traitements précédents.</p>
+</div>
+
+<div id="unavailable" class="hidden card bg-amber-50 border-amber-200 mb-6">
+  <p class="text-sm text-amber-800 font-medium">Le module <code>face_recognition</code> n'est pas installé.</p>
+  <p class="text-sm text-amber-700 mt-2">
+    Pour l'installer, ouvrez un terminal à la racine du projet et lancez :<br>
+    <code class="block mt-1 bg-white rounded px-3 py-1.5 border border-amber-200 font-mono text-xs">
+      venv/bin/pip install face_recognition
+    </code>
+    (nécessite <code>cmake</code> et <code>dlib</code> — peut prendre plusieurs minutes)
+  </p>
+</div>
+
+<div id="persons_section">
+  <div id="empty_state" class="hidden card text-center py-10 text-gray-400">
+    <div class="text-4xl mb-3">👤</div>
+    <p>Aucun visage enregistré.</p>
+    <p class="text-sm mt-1">Les visages sont ajoutés automatiquement lors du traitement.</p>
+  </div>
+
+  <div id="persons_grid" class="grid grid-cols-3 gap-4"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPersons = [];
+
+function esc(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function load() {
+  const res = await fetch('/api/faces');
+  const data = await res.json();
+
+  if (!data.available) {
+    document.getElementById('unavailable').classList.remove('hidden');
+  }
+
+  currentPersons = data.persons || [];
+  if (!currentPersons.length) {
+    document.getElementById('empty_state').classList.remove('hidden');
+    document.getElementById('persons_grid').innerHTML = '';
+    return;
+  }
+  document.getElementById('empty_state').classList.add('hidden');
+
+  const grid = document.getElementById('persons_grid');
+  grid.innerHTML = currentPersons.map(p => `
+    <div class="card flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        ${p.thumbnail
+          ? `<img src="data:image/jpeg;base64,${p.thumbnail}" class="w-12 h-12 rounded-full object-cover flex-shrink-0 border border-gray-200">`
+          : `<div class="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg flex-shrink-0">${esc(p.name.charAt(0).toUpperCase())}</div>`
+        }
+        <div class="min-w-0">
+          <div class="font-medium text-gray-800 truncate">${esc(p.name)}</div>
+          <div class="text-xs text-gray-400">${p.count} photo${p.count > 1 ? 's' : ''}</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-1 flex-shrink-0">
+        <button data-action="rename" data-name="${esc(p.name)}"
+                class="text-gray-300 hover:text-blue-500 transition text-base leading-none px-1" title="Renommer / fusionner">✎</button>
+        <button data-action="delete" data-name="${esc(p.name)}"
+                class="text-gray-300 hover:text-red-500 transition text-xl leading-none px-1" title="Supprimer">✕</button>
+      </div>
+    </div>
+  `).join('');
+
+  grid.querySelectorAll('button[data-action]').forEach(btn => {
+    const name = btn.dataset.name;
+    if (btn.dataset.action === 'delete') btn.addEventListener('click', () => deletePerson(name));
+    if (btn.dataset.action === 'rename') btn.addEventListener('click', () => renamePerson(name));
+  });
+}
+
+async function deletePerson(name) {
+  if (!confirm(`Supprimer "${name}" de la base ?`)) return;
+  await fetch('/api/faces/' + encodeURIComponent(name), { method: 'DELETE' });
+  load();
+}
+
+async function renamePerson(oldName) {
+  const input = prompt(`Renommer "${oldName}" en :`, oldName);
+  if (input === null) return;
+  const newName = input.trim();
+  if (!newName || newName === oldName) return;
+
+  const existing = currentPersons.find(p => p.name === newName);
+  if (existing) {
+    const sure = confirm(
+      `"${newName}" existe déjà (${existing.count} photo${existing.count > 1 ? 's' : ''}).\n` +
+      `Fusionner "${oldName}" avec "${newName}" ?`
+    );
+    if (!sure) return;
+  }
+
+  const res = await fetch('/api/faces/' + encodeURIComponent(oldName) + '/rename', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ new_name: newName }),
+  });
+  const data = await res.json();
+  if (data.error) { alert('Erreur : ' + data.error); return; }
+  load();
+}
+
+load();
+</script>
+{% endblock %}

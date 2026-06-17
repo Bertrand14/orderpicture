@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Profils — MediaSort{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-gray-800">Profils de nommage</h1>
+    <p class="text-gray-500 mt-1">Définissez comment vos fichiers seront nommés et organisés.</p>
+  </div>
+  <button onclick="ProfileEditor.newProfile()" class="btn-primary">+ Nouveau profil</button>
+</div>
+
+<div class="grid grid-cols-3 gap-6">
+  <!-- Liste des profils -->
+  <div class="col-span-1">
+    <div class="card p-0 overflow-hidden">
+      <div class="px-4 py-3 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+        Profils enregistrés
+      </div>
+      <div id="profile_list" class="divide-y divide-gray-100">
+        <p class="px-4 py-3 text-sm text-gray-400">Chargement…</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Éditeur -->
+  <div class="col-span-2">
+    <div id="editor" class="card">
+      <p class="text-gray-400 text-sm text-center py-8">Sélectionnez un profil ou créez-en un nouveau.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Template éditeur -->
+<template id="editor_tpl">
+  <h2 class="section-title" id="ed_title">Nouveau profil</h2>
+
+  <div class="mb-5">
+    <label class="field-label">Nom du profil <span class="text-red-500">*</span></label>
+    <input type="text" id="ed_name" placeholder="Ex : Vacances Finlande" class="input">
+  </div>
+
+  <!-- Palette de tokens -->
+  <div class="mb-6">
+    <label class="field-label mb-2">Tokens disponibles — faites-les glisser dans les zones ci-dessous</label>
+    <div id="token_palette" class="flex flex-wrap gap-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+      <!-- Injecté par JS -->
+    </div>
+  </div>
+
+  <!-- Structure dossier -->
+  <div class="mb-6">
+    <label class="field-label">
+      Structure des dossiers
+      <span class="text-xs text-gray-400 font-normal ml-2">Les tokens = niveaux de dossiers, "/" ajouté automatiquement</span>
+    </label>
+    <div id="zone_folder" class="drop-zone min-h-[52px]" data-zone="folder">
+      <span class="placeholder-text">Glissez des tokens ici…</span>
+    </div>
+    <div class="mt-1 text-xs text-gray-500">
+      Aperçu : <span id="preview_folder" class="font-mono text-gray-700"></span>
+    </div>
+  </div>
+
+  <!-- Nom de fichier -->
+  <div class="mb-6">
+    <label class="field-label">
+      Nom du fichier
+      <span class="text-xs text-gray-400 font-normal ml-2">Ajoutez des textes libres entre les tokens</span>
+    </label>
+    <div id="zone_filename" class="drop-zone min-h-[52px]" data-zone="filename">
+      <span class="placeholder-text">Glissez des tokens ici…</span>
+    </div>
+    <div class="mt-1 text-xs text-gray-500">
+      Aperçu : <span id="preview_filename" class="font-mono text-gray-700"></span><span class="text-gray-400">.jpg</span>
+    </div>
+  </div>
+
+  <!-- Options -->
+  <div class="grid grid-cols-2 gap-4 mb-6">
+    <div>
+      <label class="field-label">Action par défaut</label>
+      <select id="ed_action" class="input">
+        <option value="copy">Copier</option>
+        <option value="move">Déplacer</option>
+      </select>
+    </div>
+    <div class="flex items-center gap-3 mt-6">
+      <input type="checkbox" id="ed_delete_json" checked class="w-4 h-4 text-blue-600 rounded">
+      <label for="ed_delete_json" class="text-sm text-gray-700">Supprimer les JSON Google Photos</label>
+    </div>
+
+    <!-- Reconnaissance faciale -->
+    <div class="col-span-2 border-t border-gray-100 pt-4 mt-2">
+      <div class="flex items-start gap-4">
+        <div class="flex items-center gap-3 mt-1">
+          <input type="checkbox" id="ed_face_recognition" class="w-4 h-4 text-blue-600 rounded">
+          <label for="ed_face_recognition" class="text-sm font-medium text-gray-700">
+            Reconnaissance faciale
+          </label>
+        </div>
+        <div id="face_info" class="text-xs text-gray-400 leading-relaxed">
+          Le traitement se mettra en pause à chaque nouveau visage détecté.<br>
+          Vous pourrez le nommer ou le passer. Les visages connus sont reconnus automatiquement.
+        </div>
+      </div>
+      <div id="face_unavailable" class="hidden mt-2 text-xs text-amber-600 bg-amber-50 rounded px-3 py-2">
+        ⚠ Le module <code>face_recognition</code> n'est pas installé.
+        <a href="/faces" class="underline">Voir les instructions</a>.
+      </div>
+    </div>
+
+    <!-- Description automatique IA -->
+    <div class="col-span-2 border-t border-gray-100 pt-4 mt-2">
+      <div class="flex items-start gap-4 mb-3">
+        <div class="flex items-center gap-3 mt-1">
+          <input type="checkbox" id="ed_auto_caption" class="w-4 h-4 text-blue-600 rounded">
+          <label for="ed_auto_caption" class="text-sm font-medium text-gray-700">
+            Description automatique (IA)
+          </label>
+        </div>
+        <div class="text-xs text-gray-400 leading-relaxed">
+          Génère une description si aucune n'existe déjà (modèle BLIP).<br>
+          Plus lent : ~1-2 secondes par photo concernée.
+        </div>
+      </div>
+
+      <div class="ml-7">
+        <label class="field-label">Langue de la description</label>
+        <select id="ed_caption_language" class="input max-w-xs">
+          <!-- Injecté par JS -->
+        </select>
+      </div>
+
+      <div id="caption_unavailable" class="hidden mt-2 text-xs text-amber-600 bg-amber-50 rounded px-3 py-2">
+        ⚠ Les modules <code>torch</code> / <code>transformers</code> ne sont pas installés.
+        <a href="/faces" class="underline">Voir les instructions</a>.
+      </div>
+    </div>
+  </div>
+
+  <div class="flex gap-3">
+    <button onclick="ProfileEditor.saveProfile()" class="btn-primary flex-1">Enregistrer</button>
+    <button onclick="ProfileEditor.cancelEdit()" class="btn-secondary">Annuler</button>
+  </div>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/sortable.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/profile.js') }}"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    ProfileEditor.init('{{ profile_name }}');
+  });
+</script>
+{% endblock %}

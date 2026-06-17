@@ -1,0 +1,7 @@
+# Environnements virtuels Python
+venv/
+__pycache__/
+*.pyc
+
+# Données locales sensibles (visages reconnus, profils personnels)
+data/
