@@ -111,14 +111,16 @@ function renderLog() {
   const log = document.getElementById('log');
   const filtered = showErrorsOnly ? allResults.filter(r => r.status !== 'ok') : allResults;
   log.innerHTML = filtered.map(r => {
-    const cls = r.status === 'ok' ? 'text-gray-600' : 'text-red-600';
-    const icon = r.status === 'ok' ? '✓' : '✗';
+    const isDupe = r.status === 'ok' && r.duplicate;
+    const cls  = r.status !== 'ok' ? 'text-red-600' : isDupe ? 'text-amber-600' : 'text-gray-600';
+    const icon = r.status !== 'ok' ? '✗' : isDupe ? '↩' : '✓';
     const dest    = r.new_path ? ` → ${r.new_path}` : '';
     const err     = r.error   ? ` (${r.error})` : '';
     const src     = r.metadata_source ? `[${r.metadata_source}]` : '';
     const faces   = (r.faces_found && r.faces_found.length) ? ` 👤 ${r.faces_found.join(', ')}` : '';
     const caption = r.caption_generated ? ` 📝 "${r.caption_generated}"` : '';
-    return `<div class="${cls} leading-5">${icon} ${r.filename} ${src}${dest}${err}${faces}${caption}</div>`;
+    const dupe    = isDupe ? ' — déjà présent, ignoré' : '';
+    return `<div class="${cls} leading-5">${icon} ${r.filename} ${src}${dest}${dupe}${err}${faces}${caption}</div>`;
   }).join('');
   log.scrollTop = log.scrollHeight;
 }

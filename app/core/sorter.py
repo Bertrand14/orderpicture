@@ -61,18 +61,70 @@ def sanitize_filename(name):
 # Unique path helper
 # ---------------------------------------------------------------------------
 
-def get_unique_path(dest_dir, filename):
-    path = dest_dir / filename
-    if not path.exists():
-        return path
+def _same_file(source_path, dest_path, source_meta):
+    """
+    Return True if dest_path is the same media as source_path.
+
+    Strategy:
+    - If the date comes from a reliable source (Google JSON, EXIF, filename):
+      date equality alone is decisive — two different family photos sharing
+      the exact same second timestamp is virtually impossible.
+    - If the date is the mtime fallback (files copied without real metadata):
+      date + size within a 50 KB tolerance (EXIF enrichment adds a few KB).
+    - No date at all: not considered a duplicate (safer).
+    """
+    try:
+        source_dt = source_meta.get('datetime')
+        if source_dt is None:
+            return False
+
+        dest_meta = get_metadata(dest_path)
+        dest_dt = dest_meta.get('datetime')
+        if dest_dt is None or source_dt != dest_dt:
+            return False
+
+        # Dates match. If the date came from a reliable source, that's enough.
+        if source_meta.get('source', 'mtime') != 'mtime':
+            return True
+
+        # mtime fallback: add a size check (50 KB tolerance to absorb EXIF edits).
+        return abs(dest_path.stat().st_size - source_path.stat().st_size) < 51200
+    except Exception:
+        return False
+
+
+def find_dest_path(dest_dir, filename, source_path, source_meta):
+    """
+    Return (dest_path, is_duplicate).
+
+    - is_duplicate=True  → dest_path already holds the same file; skip copy.
+    - is_duplicate=False → dest_path is free to write (new unique name).
+
+    Checks every candidate (base name + (1), (2)…) for a size+date match
+    so that a re-run never creates a second copy of an already-sorted file.
+    """
     stem = Path(filename).stem
     suffix = Path(filename).suffix
+
+    candidates = [dest_dir / filename]
     counter = 1
+    # Pre-build a list of existing (n) variants to check
     while True:
-        candidate = dest_dir / f"{stem}({counter}){suffix}"
-        if not candidate.exists():
-            return candidate
+        c = dest_dir / f"{stem}({counter}){suffix}"
+        if not c.exists():
+            candidates.append(c)   # first free slot
+            break
+        candidates.append(c)
         counter += 1
+
+    for path in candidates:
+        if not path.exists():
+            return path, False
+        if _same_file(source_path, path, source_meta):
+            return path, True      # found existing identical copy
+
+    # All existing variants differ — use the free slot (last candidate)
+    return candidates[-1], False
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +154,7 @@ def process_file(filepath, profile, counter=0, face_callback=None):
         'exif_written': False,
         'faces_found': [],
         'caption_generated': None,
+        'duplicate': False,
     }
 
     try:
@@ -149,16 +202,26 @@ def process_file(filepath, profile, counter=0, face_callback=None):
             new_stem = meta['original_stem'] or 'fichier'
 
         new_filename = f"{new_stem}.{meta['extension']}"
-        dest_path = get_unique_path(dest_dir, new_filename)
+        dest_path, is_duplicate = find_dest_path(dest_dir, new_filename, filepath, meta)
+        result['new_path']   = str(dest_path)
+        result['duplicate']  = is_duplicate
 
-        # Move or copy
-        action = profile.get('action', 'copy')
-        if action == 'move':
-            shutil.move(str(filepath), str(dest_path))
+        if is_duplicate:
+            # File already present and identical — skip the copy/move.
+            # Still fall through to EXIF enrichment (new faces/tags) and
+            # JSON deletion so re-runs remain fully idempotent.
+            if profile.get('action') == 'move':
+                # When moving, delete the source since destination already exists
+                try:
+                    filepath.unlink()
+                except Exception:
+                    pass
         else:
-            shutil.copy2(str(filepath), str(dest_path))
-
-        result['new_path'] = str(dest_path)
+            action = profile.get('action', 'copy')
+            if action == 'move':
+                shutil.move(str(filepath), str(dest_path))
+            else:
+                shutil.copy2(str(filepath), str(dest_path))
 
         # --- Face recognition (images only, if enabled) ---
         use_faces = (
