@@ -255,11 +255,6 @@ async function doProcess() {
 
   const sessionId = 'sess_' + Date.now();
 
-  // Store processing context in sessionStorage
-  sessionStorage.setItem('mediasort_session', JSON.stringify({
-    sessionId, profile, files: scannedFiles
-  }));
-
   // Start processing
   await fetch('/api/process/start', {
     method: 'POST',

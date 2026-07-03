@@ -35,11 +35,25 @@ _caption_model = None
 _translators = {}  # lang code -> (tokenizer, model)
 
 
+def _from_pretrained_prefer_local(cls, model_name):
+    """
+    Load a model/processor from the local HF cache without hitting the
+    network when possible. transformers otherwise pings the Hub on every
+    call (even for already-cached models) to check for updates, which can
+    hang for minutes on a degraded/blocked connection instead of failing
+    fast. Falls back to a normal (online) load if nothing is cached yet.
+    """
+    try:
+        return cls.from_pretrained(model_name, local_files_only=True)
+    except Exception:
+        return cls.from_pretrained(model_name)
+
+
 def _load_caption_model():
     global _caption_processor, _caption_model
     if _caption_model is None:
-        _caption_processor = BlipProcessor.from_pretrained('Salesforce/blip-image-captioning-base')
-        _caption_model = BlipForConditionalGeneration.from_pretrained('Salesforce/blip-image-captioning-base')
+        _caption_processor = _from_pretrained_prefer_local(BlipProcessor, 'Salesforce/blip-image-captioning-base')
+        _caption_model = _from_pretrained_prefer_local(BlipForConditionalGeneration, 'Salesforce/blip-image-captioning-base')
     return _caption_processor, _caption_model
 
 
@@ -48,8 +62,8 @@ def _load_translator(lang):
         return None
     if lang not in _translators:
         model_name = _TRANSLATION_MODELS[lang]
-        tokenizer = MarianTokenizer.from_pretrained(model_name)
-        model = MarianMTModel.from_pretrained(model_name)
+        tokenizer = _from_pretrained_prefer_local(MarianTokenizer, model_name)
+        model = _from_pretrained_prefer_local(MarianMTModel, model_name)
         _translators[lang] = (tokenizer, model)
     return _translators[lang]
 
