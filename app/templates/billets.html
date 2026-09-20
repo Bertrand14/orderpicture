@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Billets — MediaSort{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-800">Idées de billets</h1>
+  <p class="text-gray-500 mt-1">
+    Analyse une bibliothèque déjà triée pour repérer des journées (ou séries de journées)
+    correspondant à une même activité — de quoi inspirer un billet pour le blog familial.
+  </p>
+</div>
+
+<div class="card mb-6">
+  <h2 class="section-title">Dossier à analyser</h2>
+
+  <div class="space-y-4">
+    <div>
+      <label class="field-label">Dossier trié <span class="text-red-500">*</span></label>
+      <div class="input-row">
+        <input type="text" id="folder" placeholder="/home/webmaster/Pictures/Triées"
+               class="input flex-1" autocomplete="off">
+        <button onclick="Billets.browse()" class="btn-secondary">Parcourir…</button>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <input type="checkbox" id="subdirs" checked class="w-4 h-4 text-blue-600 rounded">
+      <label for="subdirs" class="text-sm text-gray-700">Inclure les sous-dossiers</label>
+    </div>
+
+    <details>
+      <summary class="text-sm text-gray-500 cursor-pointer hover:text-gray-700">Options avancées</summary>
+      <div class="grid grid-cols-3 gap-4 mt-3">
+        <div>
+          <label class="field-label">Taille min. d'un groupe</label>
+          <input type="number" id="min_cluster_size" value="3" min="1" class="input">
+        </div>
+        <div>
+          <label class="field-label">Écart max. entre jours</label>
+          <input type="number" id="max_gap_days" value="1" min="1" class="input">
+        </div>
+        <div>
+          <label class="field-label">Distance GPS max. (km)</label>
+          <input type="number" id="gps_max_km" value="50" min="1" class="input">
+        </div>
+      </div>
+    </details>
+  </div>
+</div>
+
+<div class="flex gap-3 mb-6">
+  <button id="btn_scan" onclick="Billets.scan()" class="btn-primary flex-1">
+    Analyser
+  </button>
+</div>
+
+<div id="empty_state" class="hidden card text-center py-10 text-gray-400">
+  <div class="text-4xl mb-3">📝</div>
+  <p>Aucun groupe détecté avec ces critères.</p>
+  <p class="text-sm mt-1">Essayez de réduire la taille minimale de groupe ou d'élargir l'écart entre jours.</p>
+</div>
+
+<div id="clusters_list" class="space-y-4"></div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/billets.js') }}"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    Billets.init();
+  });
+</script>
+{% endblock %}

@@ -3,9 +3,12 @@ import os
 import queue
 import re
 import threading
+from io import BytesIO
 from pathlib import Path
+from urllib.parse import quote
 
-from flask import Blueprint, Response, jsonify, render_template, request, stream_with_context
+from flask import Blueprint, Response, jsonify, render_template, request, send_file, stream_with_context
+from PIL import Image
 
 from .core.scanner import scan_summary
 from .core.sorter import process_file
@@ -13,6 +16,10 @@ from .core.faces import (
     HAS_FACE_RECOGNITION, get_known_names, add_face, delete_person, rename_person, load_db
 )
 from .core.captioning import HAS_CAPTIONING, LANGUAGE_LABELS
+from .core.blogideas import (
+    find_clusters, DEFAULT_MIN_CLUSTER_SIZE, DEFAULT_MAX_GAP_DAYS, DEFAULT_GPS_MAX_KM
+)
+from .core.metadata import IMAGE_EXT_ALL
 
 bp = Blueprint('main', __name__)
 
@@ -52,6 +59,11 @@ def faces_page():
     return render_template('faces.html')
 
 
+@bp.route('/billets')
+def billets_page():
+    return render_template('billets.html')
+
+
 # ---------------------------------------------------------------------------
 # API — filesystem helpers
 # ---------------------------------------------------------------------------
@@ -82,6 +94,76 @@ def api_scan():
         return jsonify(scan_summary(folder, subdirs))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+# ---------------------------------------------------------------------------
+# API — billets (blog-post candidate detector)
+# ---------------------------------------------------------------------------
+
+@bp.route('/api/billets/scan', methods=['POST'])
+def api_billets_scan():
+    data = request.json or {}
+    folder = data.get('folder', '').strip()
+    subdirs = data.get('subdirs', True)
+    if not folder or not os.path.isdir(folder):
+        return jsonify({'error': 'Dossier introuvable : ' + folder}), 400
+
+    min_cluster_size = int(data.get('min_cluster_size') or DEFAULT_MIN_CLUSTER_SIZE)
+    max_gap_days      = int(data.get('max_gap_days') or DEFAULT_MAX_GAP_DAYS)
+    gps_max_km        = float(data.get('gps_max_km') or DEFAULT_GPS_MAX_KM)
+
+    try:
+        clusters, total_files_scanned = find_clusters(
+            folder, subdirs,
+            min_cluster_size=min_cluster_size,
+            max_gap_days=max_gap_days,
+            gps_max_km=gps_max_km,
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+    for cluster in clusters:
+        cluster['thumbnails'] = [
+            f"/api/billets/thumb?folder={quote(folder)}&path={quote(p)}"
+            for p in cluster.pop('thumbnail_paths')
+        ]
+
+    return jsonify({
+        'folder': folder,
+        'total_files_scanned': total_files_scanned,
+        'clusters': clusters,
+    })
+
+
+@bp.route('/api/billets/thumb')
+def api_billets_thumb():
+    folder = request.args.get('folder', '')
+    path = request.args.get('path', '')
+    if not folder or not path:
+        return '', 404
+
+    try:
+        root = Path(folder).resolve()
+        target = Path(path).resolve()
+        target.relative_to(root)
+    except (ValueError, OSError):
+        return '', 403
+
+    if target.suffix.lower() not in IMAGE_EXT_ALL or not target.is_file():
+        return '', 404
+
+    try:
+        img = Image.open(target).convert('RGB')
+        img.thumbnail((320, 320))
+        buf = BytesIO()
+        img.save(buf, format='JPEG', quality=80)
+        buf.seek(0)
+    except Exception:
+        return '', 404
+
+    resp = send_file(buf, mimetype='image/jpeg')
+    resp.headers['Cache-Control'] = 'public, max-age=3600'
+    return resp
 
 
 # ---------------------------------------------------------------------------
