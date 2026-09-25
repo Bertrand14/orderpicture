@@ -5,3 +5,7 @@ __pycache__/
 
 # Données locales sensibles (visages reconnus, profils personnels)
 data/
+
+# Réglages locaux de l’éditeur et de Claude Code (propres à chaque machine)
+.claude/
+.vscode/
